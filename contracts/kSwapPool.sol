@@ -4,7 +4,6 @@ pragma solidity ^0.8.15;
 import "./IkSwap.sol";
 import "./IERC20.sol";
 import "./Math.sol";
-import "woke/console.sol";
 
 //Tokens are ERC20
 //constant product AMM like Uniswap V2.
@@ -16,6 +15,15 @@ import "woke/console.sol";
 contract kSwapPool is IkSwapPool, IERC20 {
     bytes4 private constant SELECTOR = bytes4(keccak256(bytes('transfer(address,uint256)')));
 
+    error TransferFailed();
+    error ContractLocked();
+    error InsufficientLiquidity();
+    error InsufficientLiquidityMinted();
+    error InsufficientLiquidityBurned();
+    error InsufficientInputAmount();    
+    error SwapOverflow();        
+    error AmountIn0();
+    error InvalidTo();    
     function _safeTransfer(address token, address to, uint value) private {
         (bool success, bytes memory data) = token.call(abi.encodeWithSelector(SELECTOR, to, value));
         require(success && (data.length == 0 || abi.decode(data, (bool))), 'KSWAP: TRANSFER_FAILED');
@@ -45,7 +53,10 @@ contract kSwapPool is IkSwapPool, IERC20 {
     mapping(address => mapping(address => uint256)) public allowance;
 
     modifier lock() {
-        require(lockStatus == CONTRACT_UNLOCKED, "kSwap: LOCKED");
+        if (lockStatus != CONTRACT_UNLOCKED) {
+            revert ContractLocked();
+        }
+
         lockStatus = CONTRACT_LOCKED;
         _;
         lockStatus = CONTRACT_UNLOCKED;
@@ -99,20 +110,20 @@ contract kSwapPool is IkSwapPool, IERC20 {
 
     function getAmountOut(uint256 amountIn, uint256 reserveIn, uint256 reserveOut)
         internal
-        view
+        pure
         returns (
-            // pure
             uint256
         )
     {
-        require(reserveIn > 0, "kSwap: INSUFFICIENT_LIQUIDITY");
-        require(reserveOut > 0, "kSwap: INSUFFICIENT_LIQUIDITY");
+        if (reserveIn == 0 ) {
+            revert InsufficientLiquidity();
+        }
+        if (reserveOut == 0 ) {
+            revert InsufficientLiquidity();
+        }        
 
         uint256 numerator = amountIn * reserveOut;
         uint256 denominator = reserveIn + amountIn;
-        console.logUint(numerator);
-        console.logUint(denominator);
-        //  console.logUint(reserveIn*reserveOut);
         return numerator / denominator;
     }
 
@@ -137,17 +148,20 @@ contract kSwapPool is IkSwapPool, IERC20 {
         } else {
             liquidity = Math.min(amount0 * _totalSupply / _reserve0, amount1 * _totalSupply / _reserve1);
         }
-        require(liquidity > 0, "KSWAP: INSUFFICIENT_LIQUIDITY_MINTED");
+        if (liquidity == 0) {
+            revert InsufficientLiquidityMinted();
+        }
+
         _mint(msg.sender, liquidity);
         reserve0 = uint112(IERC20(token0).balanceOf(address(this)));
         reserve1 = uint112(IERC20(token1).balanceOf(address(this)));
-        console.log("minting");
+
         emit Mint(msg.sender, amount0, amount1);
     }
 
    // this low-level function should be called from a contract which performs important safety checks
     function burn(address to) external lock returns (uint amount0, uint amount1) {
-        (uint112 _reserve0, uint112 _reserve1) = getReserves(); // gas savings
+        
         address _token0 = token0;                                // gas savings
         address _token1 = token1;                                // gas savings
         uint balance0 = IERC20(_token0).balanceOf(address(this));
@@ -157,7 +171,13 @@ contract kSwapPool is IkSwapPool, IERC20 {
         uint _totalSupply = totalSupply; // gas savings, must be defined here since totalSupply can update in _mintFee
         amount0 = (liquidity  * balance0) / _totalSupply; // using balances ensures pro-rata distribution
         amount1 = (liquidity * balance1) / _totalSupply; // using balances ensures pro-rata distribution
-        require(amount0 > 0 && amount1 > 0, 'KSWAP: INSUFFICIENT_LIQUIDITY_BURNED');
+        if (amount0 == 0) {
+            revert InsufficientLiquidityBurned();
+        }
+        if (amount1 == 0) {
+            revert InsufficientLiquidityBurned();
+        }        
+
         _burn(address(this), liquidity);
         _safeTransfer(_token0, to, amount0);
         _safeTransfer(_token1, to, amount1);
@@ -173,14 +193,20 @@ contract kSwapPool is IkSwapPool, IERC20 {
 
     // this low-level function should be called from a contract which performs important safety checks
     function swap(address to, bool zeroForOne, uint256 amountIn, bytes calldata data) external lock returns (uint256) {
-        console.log("pool swaps");
-        require(amountIn != 0, "kSwap 0 Start ");
+
+        if (amountIn == 0) {
+            revert AmountIn0();
+        }
+
         (uint112 _reserve0, uint112 _reserve1) = getReserves(); // gas savings
 
-        require(to != token0 && to != token1, "kSwap: INVALID_TO");
-        console.log("amt out");
-        console.logUint(_reserve0);
-        console.logUint(_reserve1);
+        if (to == token0) {
+            revert InvalidTo();
+        }
+        if (to == token1) {
+            revert InvalidTo();
+        }        
+
         (int256 amount0_, int256 amount1_) = zeroForOne
             ? (int256(amountIn), -int256(getAmountOut(amountIn, _reserve0, _reserve1)))
             : (-int256(getAmountOut(amountIn, _reserve1, _reserve0)), int256(amountIn));
@@ -189,25 +215,26 @@ contract kSwapPool is IkSwapPool, IERC20 {
         address outToken = zeroForOne ? token1 : token0;
         uint256 balanceIn = IERC20(inToken).balanceOf(address(this));
         //erc20 transfer output token
-        console.log("transfer");
-        console.logInt(amount0_);
-        console.logInt(amount1_);
 
         if (zeroForOne) {
-            IERC20(token1).transfer(to, uint256(-amount1_));
+            _safeTransfer(token1, to,uint256(-amount1_));
         } else {
-            IERC20(token0).transfer(to, uint256(-amount0_));
+            _safeTransfer(token0, to,uint256(-amount0_));            
         }
-        console.log("callback");
+
         IkSwapSwapCallback(msg.sender).kSwapCallback(amount0_, amount1_, data);
 
         //verify that input token was transferred
         uint256 balanceOut = IERC20(inToken).balanceOf(address(this));
-        console.logUint(balanceOut);
-        console.logUint(balanceIn);
-        require(balanceIn + amountIn <= balanceOut, "IIA");
+
+        if (balanceIn + amountIn > balanceOut) {
+            revert  InsufficientInputAmount();
+        }
+        
         uint256 balance1 = IERC20(outToken).balanceOf(address(this));
-        require(balanceOut <= type(uint112).max && balance1 <= type(uint112).max, "kSwap: OVERFLOW");
+        if(balanceOut > type(uint112).max || balance1 > type(uint112).max) {
+            revert SwapOverflow();
+        }
 
         //update reserves
         if (zeroForOne) {
@@ -217,9 +244,7 @@ contract kSwapPool is IkSwapPool, IERC20 {
             reserve1 = uint112(balanceOut);
             reserve0 = uint112(balance1);
         }
-        console.log("reserves");
-        console.logUint(reserve0);
-        console.logUint(reserve1);
+
         emit Swap(msg.sender, amount0_, amount1_);
         return zeroForOne ? uint256(-amount1_) : uint256(-amount0_);
     }

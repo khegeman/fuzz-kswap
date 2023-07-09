@@ -56,6 +56,38 @@ def test_mint_1to1():
     assert mtx.events == [IERC20.Transfer(Address(0), act.address, amt), kSwapPool.Mint(act.address, amt,amt)]
     assert amt == ks.balanceOf(act) 
 
+
+@default_chain.connect(
+        fork=FORK_URL
+)
+def test_invalid_to():
+    act = default_chain.accounts[0]
+    default_chain.set_default_accounts(act)
+
+    ks = kSwapPool.deploy(USDC,WETH)
+    amt = 1000
+    mint_helper(act, ks,amt,amt)
+
+    trade_size=1000000
+
+    with must_revert(kSwapPool.InvalidTo):
+        ks.swap(Address(USDC),True, trade_size, b"" )
+
+@default_chain.connect(
+        fork=FORK_URL
+)
+def test_amountin_0():
+    act = default_chain.accounts[0]
+    default_chain.set_default_accounts(act)
+
+    ks = kSwapPool.deploy(USDC,WETH)
+    amt = 1000
+    mint_helper(act, ks,amt,amt)
+
+    with must_revert(kSwapPool.AmountIn0):
+        ks.swap(Address(USDC),True, 0, b"" )
+
+
 @default_chain.connect(
         fork=FORK_URL
 )
@@ -94,7 +126,6 @@ def test_burn():
     #to burn we have to transfer the tokens to the contract
     ks.transfer(ks, liquidity,from_=act)
     btx = ks.burn(act)
-    print("burn", btx.events)
 
     assert btx.events == [IERC20.Transfer(ks.address, Address(0), liquidity),IERC20.Transfer(ks.address, act.address, amt),IERC20.Transfer(ks.address, act.address, 2*amt),kSwapPool.Burn(act.address,amt,2*amt,act.address)]
 
