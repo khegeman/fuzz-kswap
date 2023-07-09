@@ -10,4 +10,7 @@ interface IkSwapPool {
     function token1() external view returns (address);
     function getReserves() external view returns (uint112 _reserve0, uint112 _reserve1);
     function swap(address to, bool zeroForOne, uint256 amountIn, bytes calldata data) external returns (uint256);
+
+    function mint() external returns (uint256);
+    function burn(address) external returns (uint256,uint256);
 }
