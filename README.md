@@ -37,3 +37,21 @@ Pool supports
 * erc20 interface for the liquidity provider tokens
 
 
+
+# Running woke
+
+## Initialize
+
+`woke init pytypes`
+
+
+
+## Running regular tests
+
+`woke test tests/test_swap.py`
+
+
+
+
+
+
