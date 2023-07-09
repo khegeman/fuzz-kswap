@@ -48,7 +48,7 @@ Pool supports
 
 ## Running regular tests
 
-`woke test tests/test_swap.py`
+`woke test tests`
 
 
 

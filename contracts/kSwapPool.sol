@@ -163,6 +163,9 @@ contract kSwapPool is IkSwapPool, IERC20 {
         uint256 liquidity = balanceOf[address(this)];
 
         uint256 _totalSupply = totalSupply; // gas savings, must be defined here since totalSupply can update in _mintFee
+        if (_totalSupply == 0) {
+            revert InsufficientLiquidityBurned();
+        }        
         amount0 = (liquidity * balance0) / _totalSupply; // using balances ensures pro-rata distribution
         amount1 = (liquidity * balance1) / _totalSupply; // using balances ensures pro-rata distribution
         if (amount0 == 0) {

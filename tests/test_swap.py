@@ -2,6 +2,7 @@ from woke.testing import *
 
 from pytypes.contracts.kSwapPool import kSwapPool, IERC20
 from pytypes.contracts.kSwapRouter import kSwapRouter
+from pytypes.tests.contracts.kNoRepay import kCheckNoRepay
 import os 
 from dotenv import load_dotenv
 
@@ -91,6 +92,28 @@ def test_amountin_0():
 @default_chain.connect(
         fork=FORK_URL
 )
+def test_insufficient_burn():
+    act = default_chain.accounts[0]
+    default_chain.set_default_accounts(act)
+
+    #minting returns erc20 tokens representing the position in the pool
+    #basic minting tests adds tokens in the 1:1 ratio 
+    ks = kSwapPool.deploy(USDC,WETH)
+
+    #total supply is 0, can't burn
+    with must_revert(kSwapPool.InsufficientLiquidityBurned):
+        ks.burn(act)
+
+    amt = 1000
+    mtx = mint_helper(act, ks,amt,amt*2)
+
+    #we minted, but didn't transfer lp tokens
+    with must_revert(kSwapPool.InsufficientLiquidityBurned):
+        ks.burn(act)
+
+@default_chain.connect(
+        fork=FORK_URL
+)
 def test_mint_1to2():
     act = default_chain.accounts[0]
     default_chain.set_default_accounts(act)
@@ -171,3 +194,29 @@ def test_swap():
     #after we burn, everything should be back in our account
     assert usdc.balanceOf(act) == amt + trade_size
     assert weth.balanceOf(act) == amt      
+
+@default_chain.connect(
+        fork=FORK_URL
+)
+def test_iia():
+    default_chain.set_default_accounts(default_chain.accounts[0])
+
+    act = default_chain.accounts[0]
+
+
+    ks = kSwapPool.deploy(USDC,WETH)
+
+    usdc = IERC20(USDC)
+    weth = IERC20(WETH)
+    amt = 100000000000
+    mtx = mint_helper(act, ks, amt,amt )
+
+    kr = kCheckNoRepay.deploy()
+
+    trade_size=1000000
+    usdc.transfer(act, trade_size, from_=BALANCER)    
+    usdc.approve(kr, trade_size,from_=act)
+
+    with must_revert(kSwapPool.InsufficientInputAmount):
+        tx = kr.swap(ks, True, trade_size)
+ 
