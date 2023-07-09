@@ -14,13 +14,11 @@ Simple DEX implementation for the purpose of experimenting with Woke fuzz testin
 
 
 
-
+Work  in progress
 
 
 
 # Dex Pool Implementation
-
-
 
 
 
@@ -66,6 +64,16 @@ Pool supports
 ## Initialize
 
 `woke init pytypes`
+
+
+
+## Configuration
+
+create a .env file with the following url that points to alchemy
+
+```
+RPC_URL=https://eth-mainnet.g.alchemy.com/v2/
+```
 
 
 
