@@ -11,15 +11,15 @@ import string
 from woke.testing.fuzzing import *
 from dotenv import load_dotenv
 from . import st
-
+from math import sqrt,ceil
 
 load_dotenv()
 
 RPC_URL=os.getenv('RPC_URL')
 FORK_URL=f"{RPC_URL}@17644779" 
+import random
 
-
-
+random.seed(42)
 
 USDC = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
 WETH = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
@@ -28,15 +28,44 @@ WETH = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
 BALANCER = "0xBA12222222228d8Ba445958a75a0704d566BF2C8"
 
 
-def mint_helper(to, ks, amount0, amount1):
+def mint_helper(to, ks, amount0):
+
+
+    kr = kSwapRouter.deploy()
+
 
     t0 = IERC20(ks.token0())
     t1 = IERC20(ks.token1())
 
-    t0.transfer(ks, amount0, from_=BALANCER)
-    t1.transfer(ks, amount1, from_=BALANCER)
+    amount1 = amount0
+    try:
+        amount1 = ks.previewMint(amount0)
+    except:
+        pass
 
-    return ks.mint(from_=to)
+
+    #check if we should get InsufficientLiquidityMinted
+    supply = ks.totalSupply()
+    (r0,r1) = ks.getReserves()
+    if supply > 0:
+        minAmount0 = ceil(r0/supply)
+        minAmount1 = ceil(r1/supply)
+
+        shouldInsufficientLiquidityMinted = amount0 < minAmount0 or amount1 < minAmount1
+    else:
+        shouldInsufficientLiquidityMinted = False
+    t0.transfer(to, amount0, from_=BALANCER)
+    t1.transfer(to, amount1, from_=BALANCER)
+
+    t0.approve(kr, amount0,from_=to)
+    t1.approve(kr, amount1,from_=to)
+    if shouldInsufficientLiquidityMinted:
+        with must_revert(kSwapPool.InsufficientLiquidityMinted):
+           tx = kr.addLiquidity(ks,amount0,amount1,0,0,from_=to) 
+        return None   
+    else:
+        return kr.addLiquidity(ks,amount0,amount1,0,0,from_=to)
+
 
 
 class KSwapFuzzTest(FuzzTest):
@@ -49,32 +78,68 @@ class KSwapFuzzTest(FuzzTest):
     def pre_sequence(self) -> None:
         self.pool = kSwapPool.deploy(USDC,WETH)
         
-        self.users.set(st.random_addresses(len=2)())
+        self.users.set(st.random_addresses(len=5)())
 
-        self.amount0_minted = 0
-        self.amount1_minted = 0
+        self.liquidity = 0
+        
+        
 
         
     @flow()
-    @st.given(to_=st.choose(users),amount0=st.random_int(max=400),amount1=st.random_int(max=400))
-    def flow_mint(self,to_,amount0,amount1) -> None:
+    @st.given(to_=st.choose(users),amount0=st.random_int(min=1, max=400))
+    def flow_mint(self,to_,amount0) -> None:
 
-        mint_helper(to_,self.pool, amount0,amount1)
+        mtx = mint_helper(to_,self.pool, amount0)
+        if mtx is not None:
+            (a0,a1,liquidity) = mtx.return_value
 
-        self.amount0_minted += amount0
-        self.amount1_minted += amount1
-     
+            self.liquidity += liquidity
+        
+        
 
+    @flow()
+    @st.given(to_=st.choose(users))
+    def flow_burn(self,to_) -> None:
+
+        to_burn = self.pool.balanceOf(to_)
+        if (to_burn > 0):
+
+            self.pool.transfer(self.pool,to_burn,from_=to_ )
+            self.pool.burn(to_,from_=to_)
+            self.liquidity -= to_burn
+            
+    
+    @flow()
+    @st.given(to_=st.choose(users),zeroForOne=st.random_bool(true_prob=0.5), amount=st.random_int(min=1, max=400))
+    def flow_swap(self,to_,zeroForOne,amount):
+        t0 = IERC20(self.pool.token0())
+        t1 = IERC20(self.pool.token1())
+        if self.pool.totalSupply() > 0:
+            kr = kSwapRouter.deploy()        
+            if zeroForOne:
+                t0.transfer(to_, amount, from_=BALANCER)        
+                t0.approve(kr, amount,from_=to_)
+            else:
+                t1.transfer(to_, amount, from_=BALANCER)        
+                t1.approve(kr, amount,from_=to_)
+
+            tx = kr.swap(self.pool,zeroForOne,amount,from_=to_)
+
+    
+        
+    
+
+    
     @invariant(period=1)
     def invariant_reserves(self) -> None:
         (r0,r1) = self.pool.getReserves()
-        assert r0 == self.amount0_minted
-        assert r1 == self.amount1_minted
+        assert sqrt(r0*r1) >= self.liquidity
+
 
 @default_chain.connect(
     fork=FORK_URL
 )
 def test_swap_fuzz():
     default_chain.set_default_accounts(default_chain.accounts[0])
-    KSwapFuzzTest().run(sequences_count=1, flows_count=1)
+    KSwapFuzzTest().run(sequences_count=1, flows_count=500)
 

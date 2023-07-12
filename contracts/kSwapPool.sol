@@ -63,50 +63,62 @@ contract kSwapPool is IkSwapPool, IERC20 {
         lockStatus = CONTRACT_UNLOCKED;
     }
 
-    function getReserves() public view returns (uint112 _reserve0, uint112 _reserve1) {
-        _reserve0 = reserve0;
-        _reserve1 = reserve1;
+    function getReserves() public view returns (uint112 reserve0_, uint112 reserve1_) {
+        reserve0_ = reserve0;
+        reserve1_ = reserve1;
     }
 
-    function _mint(address to, uint256 value) internal {
-        totalSupply = totalSupply += value;
-        balanceOf[to] = balanceOf[to] += value;
-        emit Transfer(address(0), to, value);
+    function _mint(address _to, uint256 _value) internal {
+        totalSupply = totalSupply += _value;
+        balanceOf[_to] = balanceOf[_to] += _value;
+        emit Transfer(address(0), _to, _value);
     }
 
-    function _burn(address from, uint256 value) internal {
-        balanceOf[from] = balanceOf[from] - value;
-        totalSupply = totalSupply - value;
-        emit Transfer(from, address(0), value);
+    function _burn(address _from, uint256 _value) internal {
+        balanceOf[_from] = balanceOf[_from] - _value;
+        totalSupply = totalSupply - _value;
+        emit Transfer(_from, address(0), _value);
     }
 
-    function _approve(address owner, address spender, uint256 value) private {
-        allowance[owner][spender] = value;
-        emit Approval(owner, spender, value);
+    function _approve(address _owner, address _spender, uint256 _value) private {
+        allowance[_owner][_spender] = _value;
+        emit Approval(_owner, _spender, _value);
     }
 
-    function _transfer(address from, address to, uint256 value) private {
-        balanceOf[from] = balanceOf[from] - value;
-        balanceOf[to] = balanceOf[to] + value;
-        emit Transfer(from, to, value);
+    function _transfer(address _from, address _to, uint256 _value) private {
+        balanceOf[_from] = balanceOf[_from] - _value;
+        balanceOf[_to] = balanceOf[_to] + _value;
+        emit Transfer(_from, _to, _value);
     }
 
-    function approve(address spender, uint256 value) external returns (bool) {
-        _approve(msg.sender, spender, value);
+    function approve(address _spender, uint256 _value) external returns (bool) {
+        _approve(msg.sender, _spender, _value);
         return true;
     }
 
-    function transfer(address to, uint256 value) external returns (bool) {
-        _transfer(msg.sender, to, value);
+    function transfer(address _to, uint256 _value) external returns (bool) {
+        _transfer(msg.sender, _to, _value);
         return true;
     }
 
-    function transferFrom(address from, address to, uint256 value) external returns (bool) {
-        if (allowance[from][msg.sender] != type(uint256).max) {
-            allowance[from][msg.sender] = allowance[from][msg.sender] - value;
+    function transferFrom(address _from, address _to, uint256 _value) external returns (bool) {
+        if (allowance[_from][msg.sender] != type(uint256).max) {
+            allowance[_from][msg.sender] = allowance[_from][msg.sender] - _value;
         }
-        _transfer(from, to, value);
+        _transfer(_from, _to, _value);
         return true;
+    }
+    function quote(uint256 _amountIn, uint256 _reserveIn, uint256 _reserveOut) public pure returns (uint256 amountOut_) {
+        if (_amountIn == 0) {
+            revert AmountIn0();
+        }
+        if (_reserveIn == 0) {
+            revert InsufficientLiquidity();
+        }
+        if (_reserveOut == 0) {
+            revert InsufficientLiquidity();
+        }
+        amountOut_ = (_amountIn * _reserveOut) / _reserveIn;
     }
 
     function getAmountOut(uint256 amountIn, uint256 reserveIn, uint256 reserveOut) internal pure returns (uint256) {
@@ -127,15 +139,18 @@ contract kSwapPool is IkSwapPool, IERC20 {
         token1 = _token1;
     }
 
+    function previewMint(uint256 _amount0) external view returns(uint256 amount1_) {
+        amount1_ = quote(_amount0,reserve0,reserve1 );
+    }
     //Right now , this is just added for initializing liquidity in testing.
     //A real mint would need to find the difference between current reserves and balance
     //and then return a token or nft representing the liquidity position
-    function mint() external lock returns (uint256 liquidity) {
+    function mint(address _to, uint256 _amount0,uint256 _amount1) external lock returns (uint256 liquidity) {
         (uint112 _reserve0, uint112 _reserve1) = getReserves(); // gas savings
         uint256 balance0 = IERC20(token0).balanceOf(address(this));
         uint256 balance1 = IERC20(token1).balanceOf(address(this));
-        uint256 amount0 = balance0 - _reserve0;
-        uint256 amount1 = balance1 - _reserve1;
+        uint256 amount0 = _amount0; //balance0 - _reserve0;
+        uint256 amount1 = _amount1;//balance1 - _reserve1;
 
         uint256 _totalSupply = totalSupply; // gas savings, must be defined here since totalSupply can update in _mintFee
         if (_totalSupply == 0) {
@@ -146,16 +161,20 @@ contract kSwapPool is IkSwapPool, IERC20 {
         if (liquidity == 0) {
             revert InsufficientLiquidityMinted();
         }
+        IkSwapMintCallback(msg.sender).kMintCallback(amount0,amount1,_to);
+        //callback must send the required tokens to the contract before we mint
+        require(IERC20(token0).balanceOf(address(this))  >= balance0 + amount0 );
+        require(IERC20(token1).balanceOf(address(this))  >= balance1 + amount1 );
 
-        _mint(msg.sender, liquidity);
+        _mint(_to, liquidity);
         reserve0 = uint112(IERC20(token0).balanceOf(address(this)));
         reserve1 = uint112(IERC20(token1).balanceOf(address(this)));
 
-        emit Mint(msg.sender, amount0, amount1);
+        emit Mint(_to, amount0, amount1);
     }
 
     // this low-level function should be called from a contract which performs important safety checks
-    function burn(address to) external lock returns (uint256 amount0, uint256 amount1) {
+    function burn(address _to) external lock returns (uint256 amount0_, uint256 amount1_) {
         address _token0 = token0; // gas savings
         address _token1 = token1; // gas savings
         uint256 balance0 = IERC20(_token0).balanceOf(address(this));
@@ -166,29 +185,39 @@ contract kSwapPool is IkSwapPool, IERC20 {
         if (_totalSupply == 0) {
             revert InsufficientLiquidityBurned();
         }        
-        amount0 = (liquidity * balance0) / _totalSupply; // using balances ensures pro-rata distribution
-        amount1 = (liquidity * balance1) / _totalSupply; // using balances ensures pro-rata distribution
-        if (amount0 == 0) {
+        amount0_ = (liquidity * balance0) / _totalSupply; // using balances ensures pro-rata distribution
+        amount1_ = (liquidity * balance1) / _totalSupply; // using balances ensures pro-rata distribution
+        if (amount0_ == 0) {
             revert InsufficientLiquidityBurned();
         }
-        if (amount1 == 0) {
+        if (amount1_ == 0) {
             revert InsufficientLiquidityBurned();
         }
 
         _burn(address(this), liquidity);
-        _safeTransfer(_token0, to, amount0);
-        _safeTransfer(_token1, to, amount1);
+        _safeTransfer(_token0, _to, amount0_);
+        _safeTransfer(_token1, _to, amount1_);
         balance0 = IERC20(_token0).balanceOf(address(this));
         balance1 = IERC20(_token1).balanceOf(address(this));
 
         reserve0 = uint112(balance0);
         reserve1 = uint112(balance1);
 
-        emit Burn(msg.sender, amount0, amount1, to);
+        emit Burn(msg.sender, amount0_, amount1_, _to);
     }
 
-    // this low-level function should be called from a contract which performs important safety checks
+
     function swap(address to, bool zeroForOne, uint256 amountIn, bytes calldata data) external lock returns (uint256) {
+        return _swap(to,zeroForOne,amountIn,data);
+    }
+
+    //for testing, this version doesn't lock the contract.
+    function vulnerable_swap(address to, bool zeroForOne, uint256 amountIn, bytes calldata data) external returns (uint256) {
+        return _swap(to,zeroForOne,amountIn,data);
+    }
+
+
+    function _swap(address to, bool zeroForOne, uint256 amountIn, bytes calldata data) internal returns (uint256) {
         if (amountIn == 0) {
             revert AmountIn0();
         }
@@ -242,5 +271,5 @@ contract kSwapPool is IkSwapPool, IERC20 {
 
         emit Swap(msg.sender, amount0_, amount1_);
         return zeroForOne ? uint256(-amount1_) : uint256(-amount0_);
-    }
+    }    
 }

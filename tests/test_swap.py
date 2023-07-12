@@ -3,6 +3,7 @@ from woke.testing import *
 from pytypes.contracts.kSwapPool import kSwapPool, IERC20
 from pytypes.contracts.kSwapRouter import kSwapRouter
 from pytypes.tests.contracts.kNoRepay import kCheckNoRepay
+from pytypes.tests.contracts.kReenter import kReenter
 import os 
 from dotenv import load_dotenv
 
@@ -20,13 +21,17 @@ BALANCER = "0xBA12222222228d8Ba445958a75a0704d566BF2C8"
 
 def mint_helper(to, ks, amount0, amount1):
 
+    kr = kSwapRouter.deploy()
+
     t0 = IERC20(ks.token0())
     t1 = IERC20(ks.token1())
 
-    t0.transfer(ks, amount0, from_=BALANCER)
-    t1.transfer(ks, amount1, from_=BALANCER)
+    t0.transfer(to, amount0, from_=BALANCER)
+    t1.transfer(to, amount1, from_=BALANCER)
 
-    return ks.mint(from_=to)
+    t0.approve(kr, amount0,from_=to)
+    t1.approve(kr, amount1,from_=to)
+    return kr.addLiquidity(ks,amount0,amount1,0,0,from_=to)
 
 
 @default_chain.connect()
@@ -54,7 +59,11 @@ def test_mint_1to1():
 
     #verify that the proper events were emitted and that the correct number of erc20 tokens were issued
 
-    assert mtx.events == [IERC20.Transfer(Address(0), act.address, amt), kSwapPool.Mint(act.address, amt,amt)]
+    assert mtx.events == [
+                            IERC20.Transfer(act.address,ks.address,amt),
+                            IERC20.Transfer(act.address,ks.address,amt),
+                            IERC20.Transfer(Address(0), act.address, amt), 
+                            kSwapPool.Mint(act.address, amt,amt)]
     assert amt == ks.balanceOf(act) 
 
 
@@ -127,7 +136,10 @@ def test_mint_1to2():
     #verify that the proper events were emitted and that the correct number of erc20 tokens were issued
 
     liquidity= 1414
-    assert mtx.events == [IERC20.Transfer(Address(0), act.address, liquidity), kSwapPool.Mint(act.address, amt,amt*2)]
+    assert mtx.events == [IERC20.Transfer(act.address,ks.address,amt),
+                          IERC20.Transfer(act.address,ks.address,amt*2),
+                          IERC20.Transfer(Address(0), act.address, liquidity), 
+                          kSwapPool.Mint(act.address, amt,amt*2)]
     assert liquidity == ks.balanceOf(act) 
 
 @default_chain.connect(
@@ -220,3 +232,35 @@ def test_iia():
     with must_revert(kSwapPool.InsufficientInputAmount):
         tx = kr.swap(ks, True, trade_size)
  
+@default_chain.connect(
+        fork=FORK_URL
+)
+def test_reenter():
+    default_chain.set_default_accounts(default_chain.accounts[0])
+    default_chain.tx_callback = lambda tx: print(tx.console_logs)
+    act = default_chain.accounts[0]
+
+
+    ks = kSwapPool.deploy(USDC,WETH)
+
+    usdc = IERC20(USDC)
+    weth = IERC20(WETH)
+    amt = 100000000000
+    mtx = mint_helper(act, ks, amt,amt )
+
+    kr = kReenter.deploy()
+
+    trade_size=1000000
+    usdc.transfer(act, trade_size*2, from_=BALANCER)    
+    print(act.address)
+    usdc.approve(kr, trade_size*2,from_=act)
+
+    tx = kr.swap(ks, True, trade_size)
+
+    print(tx.events)
+    
+
+
+    #after we burn, everything should be back in our account
+    print(usdc.balanceOf(ks.address),weth.balanceOf(ks.address))
+    #assert weth.balanceOf(kr.address)
