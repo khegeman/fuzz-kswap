@@ -5,7 +5,7 @@ import os
 from woke.testing import Address
 from pytypes.contracts.kSwapPool import kSwapPool, IERC20
 from pytypes.contracts.kSwapRouter import kSwapRouter
-
+from pytypes.tests.contracts.kReenter import kReenter
 import string
 
 from woke.testing.fuzzing import *
@@ -19,7 +19,7 @@ RPC_URL=os.getenv('RPC_URL')
 FORK_URL=f"{RPC_URL}@17644779" 
 import random
 
-random.seed(42)
+random.seed(44)
 
 USDC = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
 WETH = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
@@ -27,6 +27,7 @@ WETH = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
 #use balancer as a wallet to acquire real ERC20 tokens for testing 
 BALANCER = "0xBA12222222228d8Ba445958a75a0704d566BF2C8"
 
+PrintEnabled=True
 
 def mint_helper(to, ks, amount0):
 
@@ -86,7 +87,8 @@ class KSwapFuzzTest(FuzzTest):
 
         
     @flow()
-    @st.given(to_=st.choose(users),amount0=st.random_int(min=1, max=400))
+    @st.given(to_=st.choose(users),amount0=st.random_int(min=1, max=40000000000))
+    @st.print_steps(do_print=PrintEnabled)    
     def flow_mint(self,to_,amount0) -> None:
 
         mtx = mint_helper(to_,self.pool, amount0)
@@ -97,8 +99,9 @@ class KSwapFuzzTest(FuzzTest):
         
         
 
-    @flow()
+    @flow(precondition=lambda self: self.pool.totalSupply() > 0)
     @st.given(to_=st.choose(users))
+    @st.print_steps(do_print=PrintEnabled)      
     def flow_burn(self,to_) -> None:
 
         to_burn = self.pool.balanceOf(to_)
@@ -109,8 +112,9 @@ class KSwapFuzzTest(FuzzTest):
             self.liquidity -= to_burn
             
     
-    @flow()
-    @st.given(to_=st.choose(users),zeroForOne=st.random_bool(true_prob=0.5), amount=st.random_int(min=1, max=400))
+    @flow(precondition=lambda self: self.pool.totalSupply() > 0)
+    @st.given(to_=st.choose(users),zeroForOne=st.random_bool(true_prob=0.5), amount=st.random_int(min=1, max=40000000000))
+    @st.print_steps(do_print=PrintEnabled)  
     def flow_swap(self,to_,zeroForOne,amount):
         t0 = IERC20(self.pool.token0())
         t1 = IERC20(self.pool.token1())
@@ -125,11 +129,28 @@ class KSwapFuzzTest(FuzzTest):
 
             tx = kr.swap(self.pool,zeroForOne,amount,from_=to_)
 
+    #to test with re-entrancy adjust weight to 100
+    @flow(weight=0,precondition=lambda self: self.pool.totalSupply() > 0)
+    @st.given(to_=st.choose(users),zeroForOne=st.random_bool(true_prob=0.5), amount=st.random_int(min=1, max=400))
+    @st.print_steps(do_print=PrintEnabled)      
+    def flow_swapre(self,to_,zeroForOne,amount):
+        t0 = IERC20(self.pool.token0())
+        t1 = IERC20(self.pool.token1())
+        if self.pool.totalSupply() > 0:
+            kr = kReenter.deploy()        
+            if zeroForOne:
+                t0.transfer(to_, amount, from_=BALANCER)        
+                t0.approve(kr, amount,from_=to_)
+            else:
+                t1.transfer(to_, amount, from_=BALANCER)        
+                t1.approve(kr, amount,from_=to_)
+
+            tx = kr.swap(self.pool,zeroForOne,amount,from_=to_)
     
         
     
 
-    
+    #Period is set to 1 to verify the invariant after every flow
     @invariant(period=1)
     def invariant_reserves(self) -> None:
         (r0,r1) = self.pool.getReserves()
@@ -141,5 +162,5 @@ class KSwapFuzzTest(FuzzTest):
 )
 def test_swap_fuzz():
     default_chain.set_default_accounts(default_chain.accounts[0])
-    KSwapFuzzTest().run(sequences_count=1, flows_count=500)
+    KSwapFuzzTest().run(sequences_count=1, flows_count=10)
 

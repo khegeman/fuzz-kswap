@@ -1,3 +1,5 @@
+#various helper decorators developed for fuzzing with woke
+
 from woke.testing import *
 from woke.testing.fuzzing import random_string,random_int
 from woke.testing.fuzzing import *
@@ -148,3 +150,15 @@ def invoker(s_impl, p_impl):
             assert ptx.events == stx.events , {"invoke of {} failed event match check".format(fname)}     
         return stx
     return invoke
+
+
+### Add this dectorator to print each flow in a sequence
+def print_steps(do_print=False,*args, **kwargs):
+    def decorator(fn):
+        @functools.wraps(fn)        
+        def wrapped(*args, **kwargs):   
+            if do_print:
+                print("seq:",args[0]._sequence_num,"flow:",args[0]._flow_num, "flow name:",fn.__name__,"flow parameters:",kwargs)
+            return fn(*args,**kwargs)
+        return wrapped
+    return decorator

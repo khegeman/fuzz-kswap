@@ -18,7 +18,7 @@ WETH = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
 #use balancer as a wallet to acquire real ERC20 tokens for testing 
 BALANCER = "0xBA12222222228d8Ba445958a75a0704d566BF2C8"
 
-
+from . import st
 def mint_helper(to, ks, amount0, amount1):
 
     kr = kSwapRouter.deploy()

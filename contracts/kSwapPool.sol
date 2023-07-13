@@ -25,8 +25,8 @@ contract kSwapPool is IkSwapPool, IERC20 {
     error AmountIn0();
     error InvalidTo();
 
-    function _safeTransfer(address token, address to, uint256 value) private {
-        (bool success, bytes memory data) = token.call(abi.encodeWithSelector(SELECTOR, to, value));
+    function _safeTransfer(address _token, address _to, uint256 _value) private {
+        (bool success, bytes memory data) = _token.call(abi.encodeWithSelector(SELECTOR, _to, _value));
         require(success && (data.length == 0 || abi.decode(data, (bool))), "KSWAP: TRANSFER_FAILED");
     }
 
@@ -108,7 +108,12 @@ contract kSwapPool is IkSwapPool, IERC20 {
         _transfer(_from, _to, _value);
         return true;
     }
-    function quote(uint256 _amountIn, uint256 _reserveIn, uint256 _reserveOut) public pure returns (uint256 amountOut_) {
+
+    function quote(uint256 _amountIn, uint256 _reserveIn, uint256 _reserveOut)
+        public
+        pure
+        returns (uint256 amountOut_)
+    {
         if (_amountIn == 0) {
             revert AmountIn0();
         }
@@ -121,16 +126,16 @@ contract kSwapPool is IkSwapPool, IERC20 {
         amountOut_ = (_amountIn * _reserveOut) / _reserveIn;
     }
 
-    function getAmountOut(uint256 amountIn, uint256 reserveIn, uint256 reserveOut) internal pure returns (uint256) {
-        if (reserveIn == 0) {
+    function getAmountOut(uint256 _amountIn, uint256 _reserveIn, uint256 _reserveOut) internal pure returns (uint256) {
+        if (_reserveIn == 0) {
             revert InsufficientLiquidity();
         }
-        if (reserveOut == 0) {
+        if (_reserveOut == 0) {
             revert InsufficientLiquidity();
         }
 
-        uint256 numerator = amountIn * reserveOut;
-        uint256 denominator = reserveIn + amountIn;
+        uint256 numerator = _amountIn * _reserveOut;
+        uint256 denominator = _reserveIn + _amountIn;
         return numerator / denominator;
     }
 
@@ -139,18 +144,19 @@ contract kSwapPool is IkSwapPool, IERC20 {
         token1 = _token1;
     }
 
-    function previewMint(uint256 _amount0) external view returns(uint256 amount1_) {
-        amount1_ = quote(_amount0,reserve0,reserve1 );
+    function previewMint(uint256 _amount0) external view returns (uint256 amount1_) {
+        amount1_ = quote(_amount0, reserve0, reserve1);
     }
     //Right now , this is just added for initializing liquidity in testing.
     //A real mint would need to find the difference between current reserves and balance
     //and then return a token or nft representing the liquidity position
-    function mint(address _to, uint256 _amount0,uint256 _amount1) external lock returns (uint256 liquidity) {
+
+    function mint(address _to, uint256 _amount0, uint256 _amount1) external lock returns (uint256 liquidity) {
         (uint112 _reserve0, uint112 _reserve1) = getReserves(); // gas savings
         uint256 balance0 = IERC20(token0).balanceOf(address(this));
         uint256 balance1 = IERC20(token1).balanceOf(address(this));
         uint256 amount0 = _amount0; //balance0 - _reserve0;
-        uint256 amount1 = _amount1;//balance1 - _reserve1;
+        uint256 amount1 = _amount1; //balance1 - _reserve1;
 
         uint256 _totalSupply = totalSupply; // gas savings, must be defined here since totalSupply can update in _mintFee
         if (_totalSupply == 0) {
@@ -161,10 +167,10 @@ contract kSwapPool is IkSwapPool, IERC20 {
         if (liquidity == 0) {
             revert InsufficientLiquidityMinted();
         }
-        IkSwapMintCallback(msg.sender).kMintCallback(amount0,amount1,_to);
+        IkSwapMintCallback(msg.sender).kMintCallback(amount0, amount1, _to);
         //callback must send the required tokens to the contract before we mint
-        require(IERC20(token0).balanceOf(address(this))  >= balance0 + amount0 );
-        require(IERC20(token1).balanceOf(address(this))  >= balance1 + amount1 );
+        require(IERC20(token0).balanceOf(address(this)) >= balance0 + amount0);
+        require(IERC20(token1).balanceOf(address(this)) >= balance1 + amount1);
 
         _mint(_to, liquidity);
         reserve0 = uint112(IERC20(token0).balanceOf(address(this)));
@@ -184,7 +190,7 @@ contract kSwapPool is IkSwapPool, IERC20 {
         uint256 _totalSupply = totalSupply; // gas savings, must be defined here since totalSupply can update in _mintFee
         if (_totalSupply == 0) {
             revert InsufficientLiquidityBurned();
-        }        
+        }
         amount0_ = (liquidity * balance0) / _totalSupply; // using balances ensures pro-rata distribution
         amount1_ = (liquidity * balance1) / _totalSupply; // using balances ensures pro-rata distribution
         if (amount0_ == 0) {
@@ -206,52 +212,57 @@ contract kSwapPool is IkSwapPool, IERC20 {
         emit Burn(msg.sender, amount0_, amount1_, _to);
     }
 
-
-    function swap(address to, bool zeroForOne, uint256 amountIn, bytes calldata data) external lock returns (uint256) {
-        return _swap(to,zeroForOne,amountIn,data);
+    function swap(address _to, bool _zeroForOne, uint256 _amountIn, bytes calldata _data)
+        external
+        lock
+        returns (uint256)
+    {
+        return _swap(_to, _zeroForOne, _amountIn, _data);
     }
 
     //for testing, this version doesn't lock the contract.
-    function vulnerable_swap(address to, bool zeroForOne, uint256 amountIn, bytes calldata data) external returns (uint256) {
-        return _swap(to,zeroForOne,amountIn,data);
+    function vulnerable_swap(address _to, bool _zeroForOne, uint256 _amountIn, bytes calldata _data)
+        external
+        returns (uint256)
+    {
+        return _swap(_to, _zeroForOne, _amountIn, _data);
     }
 
-
-    function _swap(address to, bool zeroForOne, uint256 amountIn, bytes calldata data) internal returns (uint256) {
-        if (amountIn == 0) {
+    function _swap(address _to, bool _zeroForOne, uint256 _amountIn, bytes calldata _data) internal returns (uint256) {
+        if (_amountIn == 0) {
             revert AmountIn0();
         }
 
         (uint112 _reserve0, uint112 _reserve1) = getReserves(); // gas savings
 
-        if (to == token0) {
+        if (_to == token0) {
             revert InvalidTo();
         }
-        if (to == token1) {
+        if (_to == token1) {
             revert InvalidTo();
         }
 
-        (int256 amount0_, int256 amount1_) = zeroForOne
-            ? (int256(amountIn), -int256(getAmountOut(amountIn, _reserve0, _reserve1)))
-            : (-int256(getAmountOut(amountIn, _reserve1, _reserve0)), int256(amountIn));
+        (int256 amount0_, int256 amount1_) = _zeroForOne
+            ? (int256(_amountIn), -int256(getAmountOut(_amountIn, _reserve0, _reserve1)))
+            : (-int256(getAmountOut(_amountIn, _reserve1, _reserve0)), int256(_amountIn));
 
-        address inToken = zeroForOne ? token0 : token1;
-        address outToken = zeroForOne ? token1 : token0;
+        address inToken = _zeroForOne ? token0 : token1;
+        address outToken = _zeroForOne ? token1 : token0;
         uint256 balanceIn = IERC20(inToken).balanceOf(address(this));
         //erc20 transfer output token
 
-        if (zeroForOne) {
-            _safeTransfer(token1, to, uint256(-amount1_));
+        if (_zeroForOne) {
+            _safeTransfer(token1, _to, uint256(-amount1_));
         } else {
-            _safeTransfer(token0, to, uint256(-amount0_));
+            _safeTransfer(token0, _to, uint256(-amount0_));
         }
 
-        IkSwapSwapCallback(msg.sender).kSwapCallback(amount0_, amount1_, data);
+        IkSwapSwapCallback(msg.sender).kSwapCallback(amount0_, amount1_, _data);
 
         //verify that input token was transferred
         uint256 balanceOut = IERC20(inToken).balanceOf(address(this));
 
-        if (balanceIn + amountIn > balanceOut) {
+        if (balanceIn + _amountIn > balanceOut) {
             revert InsufficientInputAmount();
         }
 
@@ -261,7 +272,7 @@ contract kSwapPool is IkSwapPool, IERC20 {
         }
 
         //update reserves
-        if (zeroForOne) {
+        if (_zeroForOne) {
             reserve0 = uint112(balanceOut);
             reserve1 = uint112(balance1);
         } else {
@@ -270,6 +281,6 @@ contract kSwapPool is IkSwapPool, IERC20 {
         }
 
         emit Swap(msg.sender, amount0_, amount1_);
-        return zeroForOne ? uint256(-amount1_) : uint256(-amount0_);
-    }    
+        return _zeroForOne ? uint256(-amount1_) : uint256(-amount0_);
+    }
 }
