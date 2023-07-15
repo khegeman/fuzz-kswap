@@ -1,9 +1,21 @@
-from woke.testing import *
+
 
 from pytypes.contracts.kSwapPool import kSwapPool, IERC20
 from pytypes.contracts.kSwapRouter import kSwapRouter
 from pytypes.tests.contracts.kNoRepay import kCheckNoRepay
 from pytypes.tests.contracts.kReenter import kReenter
+from woke.development.core import Address
+
+from pytypes.contracts.kSwapPool import kSwapPool, IERC20
+from pytypes.contracts.kSwapRouter import kSwapRouter
+from pytypes.tests.contracts.kReenter import kReenter
+import string
+from woke.development.primitive_types import uint
+
+from woke.testing.core import default_chain
+from woke.development.transactions import must_revert
+
+
 import os 
 from dotenv import load_dotenv
 
@@ -12,8 +24,8 @@ load_dotenv()
 RPC_URL=os.getenv('RPC_URL')
 FORK_URL=f"{RPC_URL}@17644779" 
 
-USDC = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
-WETH = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
+USDC = Address("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48")
+WETH = Address("0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2")
 
 #use balancer as a wallet to acquire real ERC20 tokens for testing 
 BALANCER = "0xBA12222222228d8Ba445958a75a0704d566BF2C8"
@@ -81,7 +93,7 @@ def test_invalid_to():
     trade_size=1000000
 
     with must_revert(kSwapPool.InvalidTo):
-        ks.swap(Address(USDC),True, trade_size, b"" )
+        ks.swap(USDC,True, trade_size, b"" )
 
 @default_chain.connect(
         fork=FORK_URL
@@ -95,7 +107,7 @@ def test_amountin_0():
     mint_helper(act, ks,amt,amt)
 
     with must_revert(kSwapPool.AmountIn0):
-        ks.swap(Address(USDC),True, 0, b"" )
+        ks.swap(USDC,True, 0, b"" )
 
 
 @default_chain.connect(

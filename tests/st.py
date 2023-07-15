@@ -1,8 +1,7 @@
 #various helper decorators developed for fuzzing with woke
 
-from woke.testing import *
-from woke.testing.fuzzing import random_string,random_int
-from woke.testing.fuzzing import *
+
+import woke.testing.fuzzing
 import functools
 import random
 
@@ -10,18 +9,18 @@ MAX_UINT=2**256-1
 
 def random_ints(len, min_val=0, max_val=MAX_UINT):
     def f():
-        return [fuzzing.random_int(min_val, max_val) for i in range(0,len) ]
+        return [woke.testing.fuzzing.random_int(min_val, max_val) for i in range(0,len) ]
     return f
 
 
 def random_addresses(len):
     def f():
-        return [random_address() for i in range(0,len) ]
+        return [woke.testing.fuzzing.random_address() for i in range(0,len) ]
     return f
 
 def random_int(min=0,max=MAX_UINT,**kwargs):
     def f():
-        return fuzzing.random_int(min=min,max=max,**kwargs)
+        return woke.testing.fuzzing.random_int(min=min,max=max,**kwargs)
     return f
 
 def choose(values):
@@ -31,18 +30,18 @@ def choose(values):
     
 def random_bool(true_prob):
     def f():
-        return fuzzing.random_bool(true_prob=true_prob)
+        return woke.testing.fuzzing.random_bool(true_prob=true_prob)
     return f
 
 def choose_n(values, min_k, max_k):
     def f():
         
-        return random.choices(values.get(),k=random_int(min_k,max_k))
+        return random.choices(values.get(),k=woke.testing.fuzzing.random_int(min_k,max_k))
     return f
     
 def random_bytes(min, max):
     def f():
-        return fuzzing.random_bytes(min,max)
+        return woke.testing.fuzzing.random_bytes(min,max)
     return f
 
 
@@ -146,7 +145,9 @@ def invoker(s_impl, p_impl):
             
         assert py_revert == sol_revert , {"invoke of {} failed assertion check".format(fname)}       
         
+        
         if isinstance(ptx, TX):
+            assert stx is not None
             assert ptx.events == stx.events , {"invoke of {} failed event match check".format(fname)}     
         return stx
     return invoke
